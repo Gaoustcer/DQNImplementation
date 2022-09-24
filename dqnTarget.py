@@ -32,7 +32,7 @@ def make_env():
     return gym.make('CartPole-v0')
 class DQNAgent:
     # import datetime
-    def __init__(self,train_epoch=400,MAX_SIZE=2048,device = torch.device('cuda:0')) -> None:
+    def __init__(self,train_epoch=400,MAX_SIZE=512,device = torch.device('cuda:0')) -> None:
         self.trainenv = make_env()
         self.testenv = make_env()
         self.targetnet = Net(device=device)
