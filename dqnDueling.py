@@ -33,7 +33,7 @@ class Net(nn.Module):
 def make_env():
     return gym.make('CartPole-v0')
 class AgentBase:
-    def __init__(self,train_epoch = 400,MAX_SIZE = 1024,sample_size = 32,tau = 0.005,lr = 0.0001,logdir = './log/base') -> None:
+    def __init__(self,train_epoch = 400,MAX_SIZE = 1024,sample_size = 32,tau = 0.005,lr = 0.0001,gamma = 0.99,logdir = './log/base',shaping = False) -> None:
         self.train_env = make_env()
         self.test_env = make_env()
         self.targetnet = Net().cuda()
@@ -46,19 +46,28 @@ class AgentBase:
         self.lr = lr
         self.optimizer = torch.optim.Adam(self.net.parameters(),lr = self.lr)
         self.buffer = buffer(max_size=MAX_SIZE)
+        self.gamma = gamma
+        self.rewardshape = shaping
         self._bufferinit()
+        self.tderrorfunction = nn.MSELoss()
         
     def interactwithenv(self,state=None):
         # def _decisionmake():
     
-        if state == None:
+        if state is None:
             state = self.train_env.reset()
         action = torch.argmax(self.net(state)).item()
         return action,state
-
+    def _getrewardshapeing(self,next_state):
+        x,x_dot,theta,theta_dot = next_state
+        r1 = (self.train_env.x_threshold - abs(x)) / self.train_env.x_threshold - 0.8
+        r2 = (self.train_env.theta_threshold_radians - abs(theta)) / self.train_env.theta_threshold_radians - 0.5
+        return r1 + r2
     def _pushintoreplaybuffer(self,state):
         action,state = self.interactwithenv(state)
         nextstate,reward,done,info = self.train_env.step(action)
+        if self.rewardshape:
+            reward = self._getrewardshapeing(nextstate)
         self.buffer.push_memory(state,action,reward,nextstate)
         return nextstate,done
         
@@ -86,27 +95,68 @@ class AgentBase:
                 ns,r,done,_ = self.test_env.step(action)
                 state = ns
                 reward += r
-        return reward
+        return reward/self.testfreq
     
     def _softupdate(self):
         raise NotImplementedError
     def train(self):
-        for _ in range(self.EPOCH):
+        from tqdm import tqdm
+        for epoch in tqdm(range(self.EPOCH)):
+            reward = self.test()
+            self.writer.add_scalar('reward',reward,epoch)
             self.collectnewdata()
             self._trainanepoch()
-            reward = self.test()
-
+            # reward = self.test()
+            # self.writer.add_scalar("reward",reward,epoch)
 
     def _trainanepoch(self):
         raise NotImplementedError("You should implement train function for your purpose")
 
 class DQNNaive(AgentBase):
-    def __init__(self, train_epoch=400, MAX_SIZE=1024, sample_size=32, tau=0.005, lr=0.0001, logdir = "./log/NaiveDQN") -> None:
-        super(DQNNaive,self).__init__(train_epoch, MAX_SIZE, sample_size, tau, lr,logdir)
+    def __init__(self, train_epoch=400, MAX_SIZE=1024, sample_size=32, tau=0.005, lr=0.0001,gamma = 0.99,logdir = "./log/NaiveDQN",shaping=False) -> None:
+        super(DQNNaive,self).__init__(train_epoch, MAX_SIZE, sample_size, tau, lr,gamma,logdir,shaping)
+        
+    
+    def _trainanepoch(self,update_freq=16):
+        for _ in range(update_freq):
+            states,actions,rewards,nextstates = self.buffer.sample(self.sample_size)
+            # stateactionvalues = self.net(states)
+            actions = torch.from_numpy(actions).to(torch.long).cuda().unsqueeze(-1)
+            stateactionvalues = torch.gather(self.net(states),-1,actions).squeeze()
+            nextstateactionvalues = torch.max(self.net(nextstates),-1)[0]
+            TDreward = (nextstateactionvalues + torch.mul(self.gamma,torch.from_numpy(rewards).cuda())).to(torch.float32).detach()
+            self.optimizer.zero_grad()
+            TDerror = self.tderrorfunction(stateactionvalues,TDreward)
+            TDerror.backward()
+            self.optimizer.step()
+    def _softupdate(self):
+        pass
         # self.logdir = logdir
         # self.writer = SummaryWriter(self.logdir)
     # def train(self):
         # for epoch in range(self.EPOCH):
+class DQNTarget_softupdate(AgentBase):
+    def __init__(self, train_epoch=400, MAX_SIZE=1024, sample_size=32, tau=0.005, lr=0.0001, gamma=0.99, logdir='./log/DQNTarget', shaping=False) -> None:
+        super().__init__(train_epoch, MAX_SIZE, sample_size, tau, lr, gamma, logdir, shaping)
+    
+    def _softupdate(self):
+        for targetparam,naiveparm in zip(self.targetnet.parameters(),self.net.parameters()):
+            targetparam.copy_(
+                self.tau * naiveparm + (1 - self.tau) * targetparam
+            )
+    def _trainanepoch(self,update_freq=16):
+        for _ in range(update_freq):
+            states,actions,rewards,nextstates = self.buffer.sample(self.sample_size)
+            # stateactionvalues = self.net(states)
+            actions = torch.from_numpy(actions).to(torch.long).cuda().unsqueeze(-1)
+            stateactionvalues = torch.gather(self.net(states),-1,actions).squeeze()
+            nextstateactionvalues = torch.max(self.targetnet(nextstates),-1)[0]
+            TDreward = (nextstateactionvalues + torch.mul(self.gamma,torch.from_numpy(rewards).cuda())).to(torch.float32).detach()
+            self.optimizer.zero_grad()
+            TDerror = self.tderrorfunction(stateactionvalues,TDreward)
+            TDerror.backward()
+            self.optimizer.step()
+
 
         
 # class DQNAgent:
@@ -224,3 +274,7 @@ class DQNNaive(AgentBase):
     # Agent = DQNAgent()
     # Agent.learn()
 
+if __name__ == "__main__":
+    # Agent = DQNNaive(logdir='./log/DQNNaive',shaping=True)
+    Agent = DQNTarget_softupdate(shaping=False)
+    Agent.train()
