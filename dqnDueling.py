@@ -157,6 +157,29 @@ class DQNTarget_softupdate(AgentBase):
             TDerror.backward()
             self.optimizer.step()
 
+class DQNDoubleTarget_softupdate(AgentBase):
+    def __init__(self, train_epoch=400, MAX_SIZE=1024, sample_size=32, tau=0.005, lr=0.0001, gamma=0.99, logdir='./log/DQNDoubleTarget', shaping=False) -> None:
+        super().__init__(train_epoch, MAX_SIZE, sample_size, tau, lr, gamma, logdir, shaping)
+    
+    def _softupdate(self):
+        for targetparam,naiveparm in zip(self.targetnet.parameters(),self.net.parameters()):
+            targetparam.copy_(
+                self.tau * naiveparm + (1 - self.tau) * targetparam
+            )
+    def _trainanepoch(self,update_freq=16):
+        for _ in range(update_freq):
+            states,actions,rewards,nextstates = self.buffer.sample(self.sample_size)
+            # stateactionvalues = self.net(states)
+            actions = torch.from_numpy(actions).to(torch.long).cuda().unsqueeze(-1)
+            nextactions = torch.argmax(self.net(nextstates),dim=-1).unsqueeze(-1).cuda()
+            stateactionvalues = torch.gather(self.net(states),-1,actions).squeeze()
+            # nextstateactionvalues = torch.max(self.targetnet(nextstates),-1)[0]
+            nextstateactionvalues = torch.gather(self.targetnet(nextstates),-1,nextactions)
+            TDreward = (nextstateactionvalues + torch.mul(self.gamma,torch.from_numpy(rewards).cuda())).to(torch.float32).detach()
+            self.optimizer.zero_grad()
+            TDerror = self.tderrorfunction(stateactionvalues,TDreward)
+            TDerror.backward()
+            self.optimizer.step()
 
         
 # class DQNAgent:
@@ -276,5 +299,6 @@ class DQNTarget_softupdate(AgentBase):
 
 if __name__ == "__main__":
     # Agent = DQNNaive(logdir='./log/DQNNaive',shaping=True)
-    Agent = DQNTarget_softupdate(shaping=False)
+    # Agent = DQNTarget_softupdate(shaping=True)
+    Agent = DQNDoubleTarget_softupdate(shaping=False)
     Agent.train()
