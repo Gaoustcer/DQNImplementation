@@ -31,7 +31,7 @@ class Advantagenet(nn.Module):
         self.Advantageencoding = nn.Sequential(
             nn.Linear(32,16),
             nn.ReLU(),
-            nn.Linear(16,4),
+            nn.Linear(16,2),
             nn.ReLU()
         )
         self.Valueencoding = nn.Sequential(
