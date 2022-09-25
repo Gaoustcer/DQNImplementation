@@ -135,6 +135,17 @@ class DQNNaive(AgentBase):
         # self.writer = SummaryWriter(self.logdir)
     # def train(self):
         # for epoch in range(self.EPOCH):
+class DQNrandomsample(DQNNaive):
+    def __init__(self, train_epoch=400, MAX_SIZE=1024, sample_size=32, tau=0.005, lr=0.0001, gamma=0.99, logdir="./log/NaiveDQNrandomsample", shaping=False) -> None:
+        super(DQNrandomsample,self).__init__(train_epoch, MAX_SIZE, sample_size, tau, lr, gamma, logdir, shaping)
+    
+    def interactwithenv(self, state=None):
+        if state is None:
+            state = self.train_env.reset()
+        return self.train_env.action_space.sample(),state
+        # return super().interactwithenv(state)
+
+
 class DQNTarget_softupdate(AgentBase):
     def __init__(self, train_epoch=400, MAX_SIZE=1024, sample_size=32, tau=0.005, lr=0.0001, gamma=0.99, logdir='./log/DQNTarget', shaping=False) -> None:
         super().__init__(train_epoch, MAX_SIZE, sample_size, tau, lr, gamma, logdir, shaping)
@@ -160,12 +171,15 @@ class DQNTarget_softupdate(AgentBase):
 class DQNDoubleTarget_softupdate(AgentBase):
     def __init__(self, train_epoch=400, MAX_SIZE=1024, sample_size=32, tau=0.005, lr=0.0001, gamma=0.99, logdir='./log/DQNDoubleTarget', shaping=False) -> None:
         super().__init__(train_epoch, MAX_SIZE, sample_size, tau, lr, gamma, logdir, shaping)
-    
+        self.lossindex = 0
     def _softupdate(self):
         for targetparam,naiveparm in zip(self.targetnet.parameters(),self.net.parameters()):
             targetparam.copy_(
                 self.tau * naiveparm + (1 - self.tau) * targetparam
             )
+    def _trackloss(self,loss):
+        self.writer.add_scalar('TDerror',loss,self.lossindex)
+        self.lossindex += 1
     def _trainanepoch(self,update_freq=16):
         for _ in range(update_freq):
             states,actions,rewards,nextstates = self.buffer.sample(self.sample_size)
@@ -174,13 +188,33 @@ class DQNDoubleTarget_softupdate(AgentBase):
             nextactions = torch.argmax(self.net(nextstates),dim=-1).unsqueeze(-1).cuda()
             stateactionvalues = torch.gather(self.net(states),-1,actions).squeeze()
             # nextstateactionvalues = torch.max(self.targetnet(nextstates),-1)[0]
-            nextstateactionvalues = torch.gather(self.targetnet(nextstates),-1,nextactions)
+            nextstateactionvalues = torch.gather(self.targetnet(nextstates),-1,nextactions).squeeze()
             TDreward = (nextstateactionvalues + torch.mul(self.gamma,torch.from_numpy(rewards).cuda())).to(torch.float32).detach()
             self.optimizer.zero_grad()
+            # print(TDreward.shape)
+            # print(stateactionvalues.shape)
+            # exit()
             TDerror = self.tderrorfunction(stateactionvalues,TDreward)
+            self._trackloss(TDerror)
             TDerror.backward()
             self.optimizer.step()
+from model.model import Advantagenet
 
+class DuelingDQN(DQNTarget_softupdate):
+    def __init__(self, train_epoch=400, MAX_SIZE=1024, sample_size=32, tau=0.005, lr=0.0001, gamma=0.99, logdir='./log/DQNDuelingTarget', shaping=False) -> None:
+        super(DuelingDQN,self).__init__(train_epoch, MAX_SIZE, sample_size, tau, lr, gamma, logdir, shaping)
+        self.Advantagenet = Advantagenet().cuda()
+        self.optimizer = torch.optim.Adam(self.Advantagenet.parameters(),lr = self.lr)
+        self.targetAdvantagenet = Advantagenet().cuda()
+
+    def _trainanepoch(self, update_freq=16):
+        # return super()._trainanepoch(update_freq)
+        for _ in range(update_freq):
+            
+    # def train(self):
+        # return super().train()
+
+        
         
 # class DQNAgent:
 #     # import datetime
@@ -300,5 +334,6 @@ class DQNDoubleTarget_softupdate(AgentBase):
 if __name__ == "__main__":
     # Agent = DQNNaive(logdir='./log/DQNNaive',shaping=True)
     # Agent = DQNTarget_softupdate(shaping=True)
-    Agent = DQNDoubleTarget_softupdate(shaping=False)
+    Agent = DQNDoubleTarget_softupdate(shaping=True)
+    # Agent = DQNrandomsample(shaping=True)
     Agent.train()
