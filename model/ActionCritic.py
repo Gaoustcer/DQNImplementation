@@ -25,7 +25,12 @@ class Actor(nn.Module):
             
             action = torch.from_numpy(action).cuda()
         else:
-            embedding = torch.concat([state,action.unsqueeze(-1)],1).cuda().to(torch.float32)
+            if len(state.shape) == 1:
+                embedding = torch.concat([state,action],0).cuda().to(torch.float32)
+            else:
+                # print('state is',state.shape)
+                # print('action is',action.shape)
+                embedding = torch.concat([state,action],1).cuda().to(torch.float32)
         return (action + self.noise * self.action_encoding(embedding)).clamp(-1,1)
 
 from copy import deepcopy
@@ -48,6 +53,6 @@ class Critic(nn.Module):
             # if len(state.shape) == 1:
             embedding =  torch.from_numpy(np.concatenate([state,action],-1)).cuda().to(torch.float32)
         else:
-            embedding = torch.concat([state,action.unsqueeze(-1)],-1).cuda().to(torch.float32)
+            embedding = torch.concat([state,action],-1).cuda().to(torch.float32)
         # embedding = torch.from_numpy(np.concatenate())
         return self.C1(embedding),self.C2(embedding)

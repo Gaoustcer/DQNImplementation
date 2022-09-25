@@ -40,9 +40,9 @@ class VariationAutoEncode(nn.Module):
         mean = self.meanencode(input_tensor)
         sigma = self.sigmaencode(input_tensor)
         noise = sigma * torch.normal(0,1,mean.shape).cuda() + mean
-        print("noise",noise.shape)
-        print("state",states.shape)
-        print('concat',torch.concat([states,noise],-1).shape)
+        # print("noise",noise.shape)
+        # print("state",states.shape)
+        # print('concat',torch.concat([states,noise],-1).shape)
         rebultactions = self.generate_actions(torch.concat([states,noise],-1))
         return rebultactions,mean,sigma
     
@@ -50,7 +50,20 @@ class VariationAutoEncode(nn.Module):
         if isinstance(states,np.ndarray):
             states = torch.from_numpy(states)
         states = states.to(torch.float32).cuda()
-        noise = torch.normal(0,1,(states.shape[0],self.latent_dim)).cuda()
+        if len(states.shape) == 1:
+            noisesize = 1
+        else:
+            noisesize = states.shape[0]
+        noise = torch.normal(0,1,(noisesize,self.latent_dim)).cuda()
+        # print("noise is",noise.shape)
+        # print("state is",states.shape)
+        if len(states.shape) == 1:
+            noise = noise.squeeze()
+            # states = states.unsqueeze(-1)
+            # noise = noise.squeeze()
+            # print(noise.shape)
+            # print(states.shape)
+            # self.generate_actions(torch.concat([states,noise],0))
         return self.generate_actions(torch.concat([states,noise],-1))
         # self.sigmaencode = 
 
