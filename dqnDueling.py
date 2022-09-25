@@ -50,6 +50,10 @@ class AgentBase:
         self.rewardshape = shaping
         self._bufferinit()
         self.tderrorfunction = nn.MSELoss()
+        self.lossindex = 0
+    def _trackloss(self,loss):
+        self.writer.add_scalar('TDerror',loss,self.lossindex)
+        self.lossindex += 1
         
     def interactwithenv(self,state=None):
         # def _decisionmake():
@@ -202,10 +206,12 @@ from model.model import Advantagenet
 
 class DuelingDQN(DQNTarget_softupdate):
     def __init__(self, train_epoch=400, MAX_SIZE=1024, sample_size=32, tau=0.005, lr=0.0001, gamma=0.99, logdir='./log/DQNDuelingTarget', shaping=False) -> None:
-        super(DuelingDQN,self).__init__(train_epoch, MAX_SIZE, sample_size, tau, lr, gamma, logdir, shaping)
         self.Advantagenet = Advantagenet().cuda()
-        self.optimizer = torch.optim.Adam(self.Advantagenet.parameters(),lr = self.lr)
         self.targetAdvantagenet = Advantagenet().cuda()
+        super(DuelingDQN,self).__init__(train_epoch, MAX_SIZE, sample_size, tau, lr, gamma, logdir, shaping)
+        # self.Advantagenet = Advantagenet().cuda()
+        self.optimizer = torch.optim.Adam(self.Advantagenet.parameters(),lr = self.lr)
+        # self.targetAdvantagenet = Advantagenet().cuda()
 
     def interactwithenv(self, state=None):
         if state is None:
@@ -241,6 +247,7 @@ class DuelingDQN(DQNTarget_softupdate):
             nextstateactionvalues  = (torch.from_numpy(rewards).cuda() + self.gamma * torch.max(self.targetAdvantagenet(nextstates),-1)[0]).to(torch.float32).detach()
             self.optimizer.zero_grad()
             TDerror = self.tderrorfunction(currentstateactionvalues,nextstateactionvalues)
+            self._trackloss(TDerror)
             TDerror.backward()
             self.optimizer.step()
 
