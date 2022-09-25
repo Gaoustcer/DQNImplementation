@@ -22,7 +22,7 @@ class Actor(nn.Module):
 		a = self.phi * self.max_action * torch.tanh(self.l3(a))
 		return (a + action).clamp(-self.max_action, self.max_action)
 # Actor net input current state and acxtion and add a noise into action from the net(input is [state,action] tensor)
-
+# add a noise into origin action
 class Critic(nn.Module):
 	def __init__(self, state_dim, action_dim):
 		super(Critic, self).__init__()
@@ -45,7 +45,7 @@ class Critic(nn.Module):
 		q2 = F.relu(self.l5(q2))
 		q2 = self.l6(q2)
 		return q1, q2
-
+# Why get two action_state value?
 
 	def q1(self, state, action):
 		q1 = F.relu(self.l1(torch.cat([state, action], 1)))
@@ -64,6 +64,8 @@ class VAE(nn.Module):
 		self.mean = nn.Linear(750, latent_dim)
 		self.log_std = nn.Linear(750, latent_dim)
         # map the (state + action) into latent variable(mean and std)
+		# (state_dim+latent_dim) map into action dim
+		# VAE
 		self.d1 = nn.Linear(state_dim + latent_dim, 750)
 		self.d2 = nn.Linear(750, 750)
 		self.d3 = nn.Linear(750, action_dim)
@@ -90,7 +92,8 @@ class VAE(nn.Module):
 
 		return u, mean, std
 
-
+# u is generative result and mean std is sent to 
+# after training is finished
 	def decode(self, state, z=None):
 		# When sampling from the VAE, the latent vector is clipped to [-0.5, 0.5]
 		if z is None:
@@ -99,7 +102,10 @@ class VAE(nn.Module):
 		a = F.relu(self.d1(torch.cat([state, z], 1)))
 		a = F.relu(self.d2(a))
 		return self.max_action * torch.tanh(self.d3(a))
-		
+
+
+# need to view the implementation of VAE
+
 
 
 class BCQ(object):
@@ -131,6 +137,7 @@ class BCQ(object):
 			action = self.actor(state, self.vae.decode(state))
 			q1 = self.critic.q1(state, action)
 			ind = q1.argmax(0)
+			# select action based on q1 What the funking code? puzzled me
 		return action[ind].cpu().data.numpy().flatten()
 
 
@@ -142,8 +149,10 @@ class BCQ(object):
 
 			# Variational Auto-Encoder Training
 			recon, mean, std = self.vae(state, action)
+			# generate another action
 			recon_loss = F.mse_loss(recon, action)
 			KL_loss	= -0.5 * (1 + torch.log(std.pow(2)) - mean.pow(2) - std.pow(2)).mean()
+			# -0.5 * (log(sigma^2) - mu^2 - sigma^2)
 			vae_loss = recon_loss + 0.5 * KL_loss
 
 			self.vae_optimizer.zero_grad()
@@ -155,16 +164,17 @@ class BCQ(object):
 			with torch.no_grad():
 				# Duplicate next state 10 times
 				next_state = torch.repeat_interleave(next_state, 10, 0)
-
+				# generate 10 state copy from origin states
 				# Compute value of perturbed actions sampled from the VAE
 				target_Q1, target_Q2 = self.critic_target(next_state, self.actor_target(next_state, self.vae.decode(next_state)))
-
+				# critic output two values
 				# Soft Clipped Double Q-learning 
 				target_Q = self.lmbda * torch.min(target_Q1, target_Q2) + (1. - self.lmbda) * torch.max(target_Q1, target_Q2)
 				# Take max over each action sampled from the VAE
 				target_Q = target_Q.reshape(batch_size, -1).max(1)[0].reshape(-1, 1)
 
 				target_Q = reward + not_done * self.discount * target_Q
+				# judge whether is last target
 
 			current_Q1, current_Q2 = self.critic(state, action)
 			critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
