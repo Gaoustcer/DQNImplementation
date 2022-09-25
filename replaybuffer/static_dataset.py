@@ -13,7 +13,7 @@ class Maze2d(Dataset):
         # return len(self.dataset['actions'])
     
     def __getitem__(self, index):
-        return self.dataset['observations'][index],self.dataset['actions'][index],self.dataset['reward'][index],self.dataset['next_observations'][index]
+        return self.dataset['observations'][index],self.dataset['actions'][index],self.dataset['rewards'][index],self.dataset['next_observations'][index]
 
 
 if __name__ == "__main__":
