@@ -1,5 +1,5 @@
-from model.ActionCritic import Actor,Critic
-from model.VAE import VariationAutoEncode
+from model.A_C import Actor,Critic
+from model.Variation_Auto_encoder import VariationAutoEncode
 from replaybuffer.static_dataset import Maze2d
 import torch
 import torch.nn as nn
@@ -33,15 +33,28 @@ class BCQ_trainer(object):
         self.traintime = 0
         from torch.utils.tensorboard import SummaryWriter
         self.writer = SummaryWriter('./logBCQ')
+    
+    def validate(self):
+        reward = 0
+        for _ in range(self.valfreq):
+            done = False
+            state = self.testenv.reset()
+            while done == False:
+                action = self.Actor(state).cpu().detach().numpy()
+                ns,r,done,_ = self.testenv.step(action)
+                state = ns
+                reward += r
+        return reward/self.valfreq
+
     def validate(self):
         reward = 0
         for _ in range(self.valfreq):
             state = self.testenv.reset()
             done = False
             while done == False:
-                action = self.VAE.generateactionfromstate(state)
+                # action = self.VAE.generateactionfromstate(state)
                 # print('action is',action)
-                action = self.Actor(torch.from_numpy(state).cuda(),action).detach().cpu().numpy()
+                action = self.Actor(torch.from_numpy(state).cuda(),None).detach().cpu().numpy()
                 nx,r,done,_ = self.testenv.step(action)
                 state = nx
                 reward += r
@@ -64,10 +77,11 @@ class BCQ_trainer(object):
         for epoch in tqdm(range(self.EPOCH)):
             self._trainepoch()
             self._softupdate()
+    
+    def _trainepoch(self):
+        pass
 
     def _trainepoch(self):
-        # pass
-        
         from tqdm import tqdm
         for current_state,action,reward,next_state,done in tqdm(self.static_data):
             current_state = current_state.cuda()
@@ -121,5 +135,6 @@ class BCQ_trainer(object):
 
 if __name__ == "__main__":
     Agent = BCQ_trainer()
-    # print(Agent.validate())
-    Agent._trainepoch()
+    print(Agent.validate())
+    # Agent._trainepoch()
+    

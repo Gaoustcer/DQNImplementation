@@ -36,7 +36,7 @@ class VariationAutoEncode(nn.Module):
         if len(actions.shape) != 2 and len(states.shape)!=1:
             actions = torch.unsqueeze(actions,-1)
         input_tensor = torch.concat([states,actions],1)
-        print(input_tensor.shape)
+        # print(input_tensor.shape)
         mean = self.meanencode(input_tensor)
         sigma = self.sigmaencode(input_tensor)
         noise = sigma * torch.normal(0,1,mean.shape).cuda() + mean
