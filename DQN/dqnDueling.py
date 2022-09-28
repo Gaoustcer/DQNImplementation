@@ -33,9 +33,9 @@ class Net(nn.Module):
 def make_env():
     return gym.make('CartPole-v0')
 class AgentBase:
-    def __init__(self,train_epoch = 400,MAX_SIZE = 1024,sample_size = 32,tau = 0.005,lr = 0.0001,gamma = 0.99,logdir = './log/base',shaping = False) -> None:
-        self.train_env = make_env()
-        self.test_env = make_env()
+    def __init__(self,train_epoch = 400,MAX_SIZE = 1024,sample_size = 32,tau = 0.005,lr = 0.0001,gamma = 0.99,logdir = './log/base',shaping = False,Env = "maze2d-umaze-v1") -> None:
+        self.train_env = gym.make(Env)
+        self.test_env = gym.make(Env)
         self.targetnet = Net().cuda()
         self.net = Net().cuda()
         self.sample_size = sample_size

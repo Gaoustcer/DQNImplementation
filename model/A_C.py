@@ -65,7 +65,13 @@ class Critic(nn.Module):
             if len(action) == 2 and len(action.shape) == 1:
                 action = np.expand_dims(action,1)
             # if len(state.shape) == 1:
-            embedding =  torch.from_numpy(np.concatenate([state,action],-1)).cuda().to(torch.float32)
+            # print("state is",state)
+            # print('action is',action)
+            state = torch.from_numpy(state).cuda()
+            if isinstance(action,np.ndarray):
+                action = torch.from_numpy(action).cuda()
+            embedding = torch.concat([state,action],-1).to(torch.float32)
+            # embedding =  torch.from_numpy(np.concatenate([state,action],-1)).cuda().to(torch.float32)
         else:
             embedding = torch.concat([state,action],-1).cuda().to(torch.float32)
         # embedding = torch.from_numpy(np.concatenate())

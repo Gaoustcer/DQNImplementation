@@ -36,7 +36,7 @@ class VariationAutoEncode(nn.Module):
         mu = self.meanencode(states)
         noise = self.normal.sample((sigma.shape)).cuda()
         encoding = noise * sigma + mu
-        return self.generate_actions(encoding)
+        return mu,sigma,self.generate_actions(encoding)
 
 
     # def forward(self,states,actions):

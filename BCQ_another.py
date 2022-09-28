@@ -46,19 +46,19 @@ class BCQ_trainer(object):
                 reward += r
         return reward/self.valfreq
 
-    def validate(self):
-        reward = 0
-        for _ in range(self.valfreq):
-            state = self.testenv.reset()
-            done = False
-            while done == False:
-                # action = self.VAE.generateactionfromstate(state)
-                # print('action is',action)
-                action = self.Actor(torch.from_numpy(state).cuda(),None).detach().cpu().numpy()
-                nx,r,done,_ = self.testenv.step(action)
-                state = nx
-                reward += r
-        return reward/self.valfreq
+    # def validate(self):
+    #     reward = 0
+    #     for _ in range(self.valfreq):
+    #         state = self.testenv.reset()
+    #         done = False
+    #         while done == False:
+    #             # action = self.VAE.generateactionfromstate(state)
+    #             # print('action is',action)
+    #             action = self.Actor(torch.from_numpy(state).cuda(),None).detach().cpu().numpy()
+    #             nx,r,done,_ = self.testenv.step(action)
+    #             state = nx
+    #             reward += r
+    #     return reward/self.valfreq
 
     def _softupdate(self):
         # pass
@@ -79,52 +79,102 @@ class BCQ_trainer(object):
             self._softupdate()
     
     def _trainepoch(self):
-        pass
-
-    def _trainepoch(self):
         from tqdm import tqdm
-        for current_state,action,reward,next_state,done in tqdm(self.static_data):
+        for index,(current_state,action,reward,next_state,done) in tqdm(enumerate(self.static_data)):
             current_state = current_state.cuda()
             action = action.cuda()
             next_state = next_state.cuda()
             done = done.cuda()
             reward = reward.cuda()
-
-            constructionactions,mu,sigma = self.VAE(current_state,action)
-            actionloss = F.mse_loss(constructionactions,action)
-            actionloss += -0.5 * (1 + torch.log(sigma ** 2) - mu ** 2 - sigma ** 2).to(torch.float32).mean()
+            mu,sigma,vaecurrentactions = self.VAE(current_state)
+            '''
+            -0.5(1+torch.log(sigma ** 2)-mu ** 2-sigma ** 2)
+            '''
+            # update VAE net
+            KLdivergence = -0.5 * (1 + torch.log(sigma ** 2) - mu ** 2 - sigma ** 2).mean()
+            Actionloss = F.mse_loss(vaecurrentactions,action)
+            VAELoss = Actionloss + KLdivergence
             self.VAEoptimizer.zero_grad()
-            actionloss.backward()
+            VAELoss.backward()
             self.VAEoptimizer.step()
-
+            '''
+            Train Critic net,input is s,a,r,s^
+            TDerror = Critic(s,a) - (TargetCritic(s^,vae(s^)) +  r)
+            '''
+            CurrentActionvalues = self.Critic(current_state,action)[0].squeeze()
             next_state = torch.repeat_interleave(next_state,self.action_sampletime,0)
-            Next_value1,Next_value2 = self.TargetCritic(next_state,self.TargetActor(next_state,self.VAE.generateactionfromstate(next_state)))
-            Next_value = self.nabla * torch.min(Next_value1,Next_value2) + (1 - self.nabla) * torch.max(Next_value1,Next_value2)
-            # print(Current_value.shape)
-            
-            Next_value = Next_value.reshape(self.static_data.batch_size,-1).max(1)[0]
-            Target_value =  (reward + ~done * self.discount * Next_value).to(torch.float32).detach()
-            # print("Target value shape",Target_value.shape)
-            Current_value1,Current_value2 = self.Critic(current_state,action)
-            TDloss = F.mse_loss(Current_value1,Target_value) + F.mse_loss(Current_value2,Target_value)
+            _,_,predactionsfornextstates = self.VAE(next_state)
+            # print("predict is",predactionsfornextstates.shape)
+            NextActionvalues1,NextActionvalues2 = self.TargetCritic(next_state,predactionsfornextstates)
+            Nextvalue = self.nabla * torch.min(NextActionvalues1,NextActionvalues2) + (1 - self.nabla) * torch.max(NextActionvalues1,NextActionvalues2)
+            # print("nextvalue is",Nextvalue.shape)
+            Nextvalue = Nextvalue.reshape(self.static_data.batch_size,-1).max(1)[0]
+            # print("current",CurrentActionvalues1.shape)
+            # print("Next value",Nextvalue.shape)
+            # exit()
+            Target_value = (self.gamma* ~done * Nextvalue + reward)
+            TDloss = F.mse_loss(CurrentActionvalues,(self.gamma * Target_value + reward).detach())
             self.optimizerCritic.zero_grad()
             TDloss.backward()
             self.optimizerCritic.step()
-
-            vaeactions = self.VAE.generateactionfromstate(current_state)
-            newactions = self.Actor(current_state,vaeactions)
-            actionvalue,_ = self.Critic(current_state,newactions)
-            actionvalue = - actionvalue.mean()
+            '''
+            Train Actor net,input is s Q(s,Actor(a)) is greater
+            '''
+            actionfromActor = self.Actor(current_state)
+            values = -self.Critic(current_state,actionfromActor)[0].mean()
             self.optimizerActor.zero_grad()
-            actionvalue.backward()
+            values.backward()
             self.optimizerActor.step()
-            if self.traintime % 32 == 0:
-                r = self.validate()
-                self.writer.add_scalar('reward',r,self.testtime)
+            if index % 32 == 0:
+                reward = self.validate()
+                self.writer.add_scalar('reward',reward,self.testtime)
                 self.testtime += 1
+        
+
+    # def _trainepoch(self):
+    #     from tqdm import tqdm
+    #     for current_state,action,reward,next_state,done in tqdm(self.static_data):
+    #         current_state = current_state.cuda()
+    #         action = action.cuda()
+    #         next_state = next_state.cuda()
+    #         done = done.cuda()
+    #         reward = reward.cuda()
+
+    #         constructionactions,mu,sigma = self.VAE(current_state,action)
+    #         actionloss = F.mse_loss(constructionactions,action)
+    #         actionloss += -0.5 * (1 + torch.log(sigma ** 2) - mu ** 2 - sigma ** 2).to(torch.float32).mean()
+    #         self.VAEoptimizer.zero_grad()
+    #         actionloss.backward()
+    #         self.VAEoptimizer.step()
+
+    #         next_state = torch.repeat_interleave(next_state,self.action_sampletime,0)
+    #         Next_value1,Next_value2 = self.TargetCritic(next_state,self.TargetActor(next_state,self.VAE.generateactionfromstate(next_state)))
+    #         Next_value = self.nabla * torch.min(Next_value1,Next_value2) + (1 - self.nabla) * torch.max(Next_value1,Next_value2)
+    #         # print(Current_value.shape)
+            
+    #         Next_value = Next_value.reshape(self.static_data.batch_size,-1).max(1)[0]
+    #         Target_value =  (reward + ~done * self.discount * Next_value).to(torch.float32).detach()
+    #         # print("Target value shape",Target_value.shape)
+    #         Current_value1,Current_value2 = self.Critic(current_state,action)
+    #         TDloss = F.mse_loss(Current_value1,Target_value) + F.mse_loss(Current_value2,Target_value)
+    #         self.optimizerCritic.zero_grad()
+    #         TDloss.backward()
+    #         self.optimizerCritic.step()
+
+    #         vaeactions = self.VAE.generateactionfromstate(current_state)
+    #         newactions = self.Actor(current_state,vaeactions)
+    #         actionvalue,_ = self.Critic(current_state,newactions)
+    #         actionvalue = - actionvalue.mean()
+    #         self.optimizerActor.zero_grad()
+    #         actionvalue.backward()
+    #         self.optimizerActor.step()
+    #         if self.traintime % 32 == 0:
+    #             r = self.validate()
+    #             self.writer.add_scalar('reward',r,self.testtime)
+    #             self.testtime += 1
                 
                 
-            self.traintime += 1
+    #         self.traintime += 1
             # exit()
             # (640,1)
 
@@ -135,6 +185,8 @@ class BCQ_trainer(object):
 
 if __name__ == "__main__":
     Agent = BCQ_trainer()
-    print(Agent.validate())
+    # print(Agent.validate())
+    # Agent._trainepoch()
+    Agent.train()
     # Agent._trainepoch()
     
