@@ -25,6 +25,7 @@ class DDPGAgent(AgentBase):
         # self.train_env = make_an_env()
         # self.test_env = make_an_env()
         self.rewardshape = False
+        self.rewardindex = 0
         # print("Initial the env")
         # print("What is action size",self.train_env.action_space.sample())
         # exit()
@@ -63,23 +64,34 @@ class DDPGAgent(AgentBase):
 
     def _trainanepoch(self):
         # return super()._trainanepoch()
-        for i in range(32):
+        for i in range(4):
             current_state,action,reward,next_state = self.buffer.sample(self.sample_size)
-            Current_value = self.CriticNet(current_state,action)[0]
+            Current_value = self.CriticNet(current_state,action)[0].squeeze()
             # print()
             with torch.no_grad():
-                next_action = self.TargetActorNet(next_state).cpu().detach().numpy()
-                Next_value = self.gamma * self.TargetCriticNet(next_state,next_action)[0]+torch.from_numpy(reward).cuda().to(torch.float32)
+                next_action = self.TargetActorNet(next_state)
+                # print("nextstate shape",next_state.shape)
+                # print("nextaction shape",next_action.shape)
+                Next_value = self.gamma * self.TargetCriticNet(next_state,next_action)[0].squeeze()+torch.from_numpy(reward).cuda().to(torch.float32)
+                # print("forward result",self.TargetCriticNet(next_state,next_action)[0].shape)
             TDloss = F.mse_loss(Current_value,Next_value)
+            # print("Current value",Current_value.shape)
+            # print("Next Value",Next_value.shape)
+            # # print(self.TargetActorNet(next_state,next_action).shape)
+            # exit()
             self.criticoptimizer.zero_grad()
             TDloss.backward()
+            self._trackloss(TDloss)
             self.criticoptimizer.step()
             values = self.CriticNet(current_state,self.ActorNet(current_state))[0]
             values = values.mean()
             self.actoroptimizer.zero_grad()
             values.backward()
             self.actoroptimizer.step()
-        self._trackloss()
+        reward = self.test()
+        self.writer.add_scalar("reward",reward,self.rewardindex)
+        self.rewardindex += 1
+        # self._trackloss()
 if __name__ == "__main__":
     Agent = DDPGAgent(logdir='./logBCQ/DDPG')
     Agent.train()
