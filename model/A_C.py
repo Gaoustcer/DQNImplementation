@@ -75,4 +75,4 @@ class Critic(nn.Module):
         else:
             embedding = torch.concat([state,action],-1).cuda().to(torch.float32)
         # embedding = torch.from_numpy(np.concatenate())
-        return self.C1(embedding),self.C2(embedding)
+        return (self.C1(embedding) + self.C2(embedding))/2
